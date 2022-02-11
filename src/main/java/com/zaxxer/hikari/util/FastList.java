@@ -45,6 +45,7 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @SuppressWarnings("unchecked")
    public FastList(Class<?> clazz)
    {
+      //默认32个。ArrayList中默认10个
       this.elementData = (T[]) Array.newInstance(clazz, 32);
       this.clazz = clazz;
    }
@@ -70,11 +71,12 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    public boolean add(T element)
    {
       try {
+         //不检查数组空间是否充足，直接赋值，如果数据越界，再执行数组扩容
          elementData[size++] = element;
       }
       catch (ArrayIndexOutOfBoundsException e) {
-         // overflow-conscious code
          final int oldCapacity = elementData.length;
+         //每次扩容为旧数组的两倍
          final int newCapacity = oldCapacity << 1;
          @SuppressWarnings("unchecked")
          final T[] newElementData = (T[]) Array.newInstance(clazz, newCapacity);
@@ -97,6 +99,23 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    {
       return elementData[index];
    }
+
+   /**
+   public E get(int index) {
+      rangeCheck(index);
+
+      return elementData(index);
+   }
+
+   private void rangeCheck(int index) {
+      if (index >= size)
+         throw new IndexOutOfBoundsException(outOfBoundsMsg(index));
+   }
+
+   E elementData(int index) {
+      return (E) elementData[index];
+   }
+   */
 
    /**
     * Remove the last element from the list.  No bound check is performed, so if this
@@ -122,6 +141,7 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
    @Override
    public boolean remove(Object element)
    {
+      //从后往前遍历，基于==做比较而不是equals
       for (int index = size - 1; index >= 0; index--) {
          if (element == elementData[index]) {
             final int numMoved = size - index - 1;
@@ -135,6 +155,40 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
 
       return false;
    }
+
+    /**
+    * Removes the first occurrence of the specified element from this list,
+    * if it is present.  If the list does not contain the element, it is
+    * unchanged.  More formally, removes the element with the lowest index
+    * <tt>i</tt> such that
+    * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>
+    * (if such an element exists).  Returns <tt>true</tt> if this list
+    * contained the specified element (or equivalently, if this list
+    * changed as a result of the call).
+    *
+    * @param o element to be removed from this list, if present
+    * @return <tt>true</tt> if this list contained the specified element
+
+   public boolean remove(Object o) {
+      if (o == null) {
+         //从前向后遍历
+         for (int index = 0; index < size; index++)
+            //null使用==判断
+            if (elementData[index] == null) {
+               fastRemove(index);
+               return true;
+            }
+      } else {
+         for (int index = 0; index < size; index++)
+            //非null使用equals判断
+            if (o.equals(elementData[index])) {
+               fastRemove(index);
+               return true;
+            }
+      }
+      return false;
+   }
+     */
 
    /**
     * Clear the FastList.
@@ -223,7 +277,7 @@ public final class FastList<T> implements List<T>, RandomAccess, Serializable
                return elementData[index++];
             }
 
-            throw new NoSuchElementException("No more elements in FastList"); 
+            throw new NoSuchElementException("No more elements in FastList");
          }
 
          @Override
