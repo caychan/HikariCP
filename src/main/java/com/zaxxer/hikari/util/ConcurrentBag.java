@@ -127,31 +127,34 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     * @return a borrowed instance from the bag or null if a timeout occurs
     * @throws InterruptedException if interrupted while waiting
     */
-   public T borrow(long timeout, final TimeUnit timeUnit) throws InterruptedException
-   {
-      // Try the thread-local list first
+   public T borrow(long timeout, final TimeUnit timeUnit) throws InterruptedException {
+      // 先看是否能从ThreadList中拿到可用链接
       List<Object> list = threadList.get();
       if (weakThreadLocals && list == null) {
          list = new ArrayList<>(16);
          threadList.set(list);
       }
 
+      //1. 试从ThreadList中获取链接，倒序获取
       for (int i = list.size() - 1; i >= 0; i--) {
          final Object entry = list.remove(i);
          @SuppressWarnings("unchecked")
+         //获取链接，链接可能使用了弱引用
          final T bagEntry = weakThreadLocals ? ((WeakReference<T>) entry).get() : (T) entry;
+         //如果能够获取链接且链接可用，则将该链接的状态从STATE_NOT_IN_USE置为STATE_IN_USE
          if (bagEntry != null && bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
             return bagEntry;
          }
       }
 
-      // Otherwise, scan the shared list ... then poll the handoff queue
+      //2. 如果ThreadList中没有可用的链接，则尝试从共享集合中获取链接
       final int waiting = waiters.incrementAndGet();
       try {
          for (T bagEntry : sharedList) {
             if (bagEntry.compareAndSet(STATE_NOT_IN_USE, STATE_IN_USE)) {
                // If we may have stolen another waiter's connection, request another bag add.
                if (waiting > 1) {
+                  //通知监听器添加链接
                   listener.addBagItem(waiting - 1);
                }
                return bagEntry;
@@ -160,6 +163,8 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
 
          listener.addBagItem(waiting);
 
+         //3. 尝试从handoffQueue队列中获取。在等待时可能链接被新建或改为转为可用状态
+         //SynchronousQueue是一种无容量的BlockingQueue，在poll时如果没有元素，则阻塞等待timeout时间
          timeout = timeUnit.toNanos(timeout);
          do {
             final long start = CLOCK.currentTime();
@@ -187,22 +192,22 @@ public class ConcurrentBag<T extends IConcurrentBagEntry> implements AutoCloseab
     * @throws NullPointerException if value is null
     * @throws IllegalStateException if the bagEntry was not borrowed from the bag
     */
-   public void requite(final T bagEntry)
-   {
+   public void requite(final T bagEntry) {
+      //1. 将链接状态改为STATE_NOT_IN_USE
       bagEntry.setState(STATE_NOT_IN_USE);
 
+      //2. 如果有等待链接的线程，将该链接交出去
       for (int i = 0; waiters.get() > 0; i++) {
          if (bagEntry.getState() != STATE_NOT_IN_USE || handoffQueue.offer(bagEntry)) {
             return;
-         }
-         else if ((i & 0xff) == 0xff) {
+         } else if ((i & 0xff) == 0xff) {
             parkNanos(MICROSECONDS.toNanos(10));
-         }
-         else {
+         } else {
             yield();
          }
       }
 
+      //3. 将链接放入线程本地缓存ThreadList中
       final List<Object> threadLocalList = threadList.get();
       if (threadLocalList != null) {
     	  threadLocalList.add(weakThreadLocals ? new WeakReference<>(bagEntry) : bagEntry);
