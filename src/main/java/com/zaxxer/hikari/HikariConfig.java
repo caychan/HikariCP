@@ -65,6 +65,8 @@ public class HikariConfig implements HikariConfigMXBean
    private volatile long idleTimeout;
    private volatile long leakDetectionThreshold;
    private volatile long maxLifetime;
+   //HikariCP中只有最大链接数和最小链接数两个值，没有max_active等。
+   //而且会默认将maxPoolSize和minIdle设置为相同的值
    private volatile int maxPoolSize;
    private volatile int minIdle;
 
@@ -221,6 +223,7 @@ public class HikariConfig implements HikariConfigMXBean
    @Override
    public void setConnectionTimeout(long connectionTimeoutMs)
    {
+      //自定义connectionTimeoutMs，不能小于250ms；若设置为0，则与Integer.MAX_VALUE相同
       if (connectionTimeoutMs == 0) {
          this.connectionTimeout = Integer.MAX_VALUE;
       }
@@ -243,6 +246,7 @@ public class HikariConfig implements HikariConfigMXBean
    @Override
    public void setValidationTimeout(long validationTimeoutMs)
    {
+      //自定义validationTimeoutMs，不能小于250ms
       if (validationTimeoutMs < 250) {
          throw new IllegalArgumentException("validationTimeout cannot be less than 250ms");
       }

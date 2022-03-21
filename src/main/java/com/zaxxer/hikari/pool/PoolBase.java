@@ -67,6 +67,7 @@ abstract class PoolBase
    private static final int TRUE = 1;
    private static final int FALSE = 0;
 
+   // 通常设置为`validationTimeout`
    private int networkTimeout;
    private int isNetworkTimeoutSupported;
    private int isQueryTimeoutSupported;
@@ -143,17 +144,19 @@ abstract class PoolBase
    {
       try {
          try {
+            //没有设置connectionTestQuery，则isUseJdbc4Validation为true
             if (isUseJdbc4Validation) {
                return connection.isValid((int) MILLISECONDS.toSeconds(Math.max(1000L, validationTimeout)));
             }
-   
+
             setNetworkTimeout(connection, validationTimeout);
-   
+
             try (Statement statement = connection.createStatement()) {
                if (isNetworkTimeoutSupported != TRUE) {
                   setQueryTimeout(statement, (int) MILLISECONDS.toSeconds(Math.max(1000L, validationTimeout)));
                }
-   
+
+               //执行connectionTestQuery，没有异常则说明Connection是活跃的
                statement.execute(config.getConnectionTestQuery());
             }
          }
@@ -241,7 +244,7 @@ abstract class PoolBase
    /**
     * Register MBeans for HikariConfig and HikariPool.
     *
-    * @param pool a HikariPool instance
+    * @param hikariPool a HikariPool instance
     */
    void registerMBeans(final HikariPool hikariPool)
    {
@@ -309,6 +312,10 @@ abstract class PoolBase
       final String driverClassName = config.getDriverClassName();
       final Properties dataSourceProperties = config.getDataSourceProperties();
 
+      //新建DataSource实例顺序：
+      // 1. HikariConfig中的DataSource；
+      // 2. HikariConfig中的DataSourceClassName；
+      // 3. HikariConfig中的jdbcUrl
       DataSource dataSource = config.getDataSource();
       if (dsClassName != null && dataSource == null) {
          dataSource = createInstance(dsClassName, DataSource.class);
@@ -338,20 +345,22 @@ abstract class PoolBase
          String username = config.getUsername();
          String password = config.getPassword();
 
+         //新建Connection，若设置了userName，则使用DriverDataSource获取Connection
+         //HikariCp中有两个DataSource实现类：HikariDataSource和DriverDataSource；其中HikariDataSource只支持不带参数的getConnection()
          connection = (username == null) ? dataSource.getConnection() : dataSource.getConnection(username, password);
          if (connection == null) {
             throw new SQLTransientConnectionException("DataSource returned null unexpectedly");
          }
 
+         //设置默认属性、测试Connection等
          setupConnection(connection);
          lastConnectionFailure.set(null);
          return connection;
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
          if (connection != null) {
+            //若异常，则Close该Connection
             quietlyCloseConnection(connection, "(Failed to create/setup connection)");
-         }
-         else if (getLastConnectionFailure() == null) {
+         } else if (getLastConnectionFailure() == null) {
             LOGGER.debug("{} - Failed to create/setup connection: {}", poolName, e.getMessage());
          }
 
@@ -369,6 +378,7 @@ abstract class PoolBase
    private void setupConnection(final Connection connection) throws ConnectionSetupException
    {
       try {
+         //初始化Connection时使用validationTimeout
          if (networkTimeout == UNINITIALIZED) {
             networkTimeout = getAndSetNetworkTimeout(connection, validationTimeout);
          }
@@ -376,9 +386,11 @@ abstract class PoolBase
             setNetworkTimeout(connection, validationTimeout);
          }
 
+         //设置属性
          connection.setReadOnly(isReadOnly);
          connection.setAutoCommit(isAutoCommit);
 
+         //执行connectionTestQuery，测试链接是否可用
          checkDriverSupport(connection);
 
          if (transactionIsolation != defaultTransactionIsolation) {
@@ -389,8 +401,10 @@ abstract class PoolBase
             connection.setCatalog(catalog);
          }
 
+         //执行connectionInitSql（若存在）
          executeSql(connection, config.getConnectionInitSql(), true);
 
+         //将networkTimeout设置回去
          setNetworkTimeout(connection, networkTimeout);
       }
       catch (SQLException e) {
@@ -656,7 +670,7 @@ abstract class PoolBase
 
       /**
        * @param poolEntry
-       * @param now
+       * @param startTime
        */
       void recordBorrowStats(final PoolEntry poolEntry, final long startTime)
       {

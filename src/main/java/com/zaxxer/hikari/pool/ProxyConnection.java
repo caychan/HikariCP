@@ -219,13 +219,17 @@ public abstract class ProxyConnection implements Connection
    @Override
    public final void close() throws SQLException
    {
+      //关闭Connection中的Statements，这些Statements保存在FastList中
       // Closing statements can cause connection eviction, so this must run before the conditional below
       closeStatements();
 
       if (delegate != ClosedConnection.CLOSED_CONNECTION) {
+         //停止内存泄露监测任务
          leakTask.cancel();
 
          try {
+            //isCommitStateDirty执行insert、update等时会将isCommitStateDirty设置为true
+            //commit或rollback后设置为true
             if (isCommitStateDirty && !isAutoCommit) {
                delegate.rollback();
                lastAccess = clockSource.currentTime();
@@ -233,6 +237,12 @@ public abstract class ProxyConnection implements Connection
             }
 
             if (dirtyBits != 0) {
+               //dirtyBits用二进制表示Connection中的某几个属性是否被设置了true
+               // static final int DIRTY_BIT_READONLY   = 0b00001; 是否readonly
+               // static final int DIRTY_BIT_AUTOCOMMIT = 0b00010; 是否自动提交
+               // static final int DIRTY_BIT_ISOLATION  = 0b00100; 是否设置了隔离级别
+               // static final int DIRTY_BIT_CATALOG    = 0b01000; 是否设置了catalog
+               // static final int DIRTY_BIT_NETTIMEOUT = 0b10000; 是否设置了networkTimeout
                poolEntry.resetConnectionState(this, dirtyBits);
                lastAccess = clockSource.currentTime();
             }
@@ -247,6 +257,7 @@ public abstract class ProxyConnection implements Connection
          }
          finally {
             delegate = ClosedConnection.CLOSED_CONNECTION;
+            //将链接放回连接池，底层为connectionBag.requite
             poolEntry.recycle(lastAccess);
          }
       }

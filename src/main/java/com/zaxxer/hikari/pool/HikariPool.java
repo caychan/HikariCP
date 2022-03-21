@@ -83,7 +83,9 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
    private final long HOUSEKEEPING_PERIOD_MS = Long.getLong("com.zaxxer.hikari.housekeeping.periodMs", SECONDS.toMillis(30));
 
    private final PoolEntryCreator POOL_ENTRY_CREATOR = new PoolEntryCreator(null);
+   //addConnectionExecutor使用的队列
    private final Collection<Runnable> addConnectionQueue;
+   //创建Connection的线程池
    private final ThreadPoolExecutor addConnectionExecutor;
    private final ThreadPoolExecutor closeConnectionExecutor;
    private ScheduledExecutorService houseKeepingExecutorService;
@@ -91,11 +93,16 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
    private final ConcurrentBag<PoolEntry> connectionBag;
 
    private final ProxyLeakTask leakTask;
+
+   //用Semaphore实现暂停连接池；（suspend时直接获取max_permits）
    private final SuspendResumeLock suspendResumeLock;
 
    private MetricsTrackerDelegate metricsTracker;
 
    /**
+    * 用两个初始化的地方
+    * 1. HikariDataSource主动用HikariConfig做参数初始化时
+    * 2. HikariDataSource用懒加载模式后，调用getConnection()时
     * Construct a HikariPool with the specified configuration.
     *
     * @param config a HikariConfig instance

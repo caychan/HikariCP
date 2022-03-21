@@ -43,7 +43,11 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
 
    private final AtomicBoolean isShutdown = new AtomicBoolean();
 
+   //fastPathPool默认和pool指向同一个对象，用final修饰在使用时更快。
+   //但只有用HikariConfig做构造参数时才会给fastPathPool赋值。
+   //因为final类型的变量不能在方法内赋值（getConnection是一个普通方法，不能给类final成员变量赋值）
    private final HikariPool fastPathPool;
+   //用double-check实现的单例poll，所以要用volatile实现线程安全
    private volatile HikariPool pool;
 
    /**
@@ -277,7 +281,7 @@ public class HikariDataSource extends HikariConfig implements DataSource, Closea
 
    /**
     * Get the {@code HikariConfigMXBean} for this HikariDataSource instance.
-    * 
+    *
     * @return the {@code HikariConfigMXBean} instance.
     */
    public HikariConfigMXBean getHikariConfigMXBean()
