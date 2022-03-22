@@ -477,6 +477,7 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
       final int connectionsToAdd = Math.min(config.getMaximumPoolSize() - getTotalConnections(), config.getMinimumIdle() - getIdleConnections())
          - addConnectionQueue.size();
       for (int i = 0; i < connectionsToAdd; i++) {
+         //为了打印日志"After adding xxx"，因为只有afterPrefix不为null时才打印日志
          addConnectionExecutor.submit((i < connectionsToAdd - 1) ? POOL_ENTRY_CREATOR : new PoolEntryCreator("After adding "));
       }
    }
@@ -649,6 +650,7 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
    }
 
    /**
+    * 管家：清理多余的链接（超过minIdle），保留必须的链接（小于minIdle）
     * The house keeping task to retire and maintain minimum idle connections.
     */
    private class HouseKeeper implements Runnable {
@@ -666,11 +668,14 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
             final long now = clockSource.currentTime();
 
             // Detect retrograde time, allowing +128ms as per NTP spec.
+            //监测时钟回拨，如果超过128ms，则从头开始重建连接池
             if (clockSource.plusMillis(now, 128) < clockSource.plusMillis(previous, HOUSEKEEPING_PERIOD_MS)) {
                LOGGER.warn("{} - Retrograde clock change detected (housekeeper delta={}), soft-evicting connections from pool.",
                   poolName, clockSource.elapsedDisplayString(previous, now));
                previous = now;
+               //驱逐所有STATE_NOT_IN_USE状态的Connection
                softEvictConnections();
+               //创建新链接
                fillPool();
                return;
             } else if (now > clockSource.plusMillis(previous, (3 * HOUSEKEEPING_PERIOD_MS) / 2)) {
@@ -689,7 +694,9 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
                   afterPrefix = "After cleanup  ";
 
                   // Sort pool entries on lastAccessed
+                  //lastAccessed越小越靠前（上次access时间越久）
                   Collections.sort(idleList, LASTACCESS_COMPARABLE);
+                  //清理超过idleTimeout的链接
                   for (PoolEntry poolEntry : idleList) {
                      if (clockSource.elapsedMillis(poolEntry.lastAccessed, now) > idleTimeout && connectionBag.reserve(poolEntry)) {
                         closeConnection(poolEntry, "(connection has passed idleTimeout)");
@@ -702,7 +709,7 @@ public class HikariPool extends PoolBase implements HikariPoolMXBean, IBagStateL
             }
 
             logPoolState(afterPrefix);
-
+            //创建新链接
             fillPool(); // Try to maintain minimum connections
          } catch (Exception e) {
             LOGGER.error("Unexpected exception in housekeeping task", e);
